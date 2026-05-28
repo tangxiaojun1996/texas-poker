@@ -3,6 +3,8 @@ import type { GameState, PlayerAction, RoomConfig } from "../shared/pokerTypes";
 
 const HEARTBEAT_TIMEOUT_MS = 30_000;
 const DEFAULT_BUY_IN = 1_000;
+const MIN_PLAYERS_TO_START = 2;
+const MAX_PLAYERS_PER_ROOM = 9;
 
 export type RoomPlayer = {
   sessionId: string;
@@ -59,6 +61,11 @@ export type SettlementResult = {
   totalNet: number;
 };
 
+export type SweepResult = {
+  changedRooms: PublicRoomState[];
+  lobbyChanged: boolean;
+};
+
 const rooms = new Map<string, Room>();
 
 export function createRoom(hostSessionId: string, input: CreateRoomInput, now = Date.now()): PublicRoomState {
@@ -95,6 +102,10 @@ export function joinRoom(sessionId: string, roomCode: string, password?: string,
     return toPublicRoom(room);
   }
 
+  if (room.players.length >= MAX_PLAYERS_PER_ROOM) {
+    throw new Error("房间最多支持 9 名玩家");
+  }
+
   room.players.push(createRoomPlayer(sessionId, now, room.nextJoinOrder, DEFAULT_BUY_IN));
   room.nextJoinOrder += 1;
   return toPublicRoom(room);
@@ -114,7 +125,7 @@ export function leaveRoom(sessionId: string, roomCode: string): void {
   }
 }
 
-export function startNextHand(hostSessionId: string, roomCode: string, seed?: number): PublicRoomState {
+export function startNextHand(hostSessionId: string, roomCode: string, seed?: number, now = Date.now()): PublicRoomState {
   const room = requireHostRoom(hostSessionId, roomCode);
   const gamePlayers = room.players
     .filter((player) => player.online && player.chips + player.pendingTopUp > 0)
@@ -132,7 +143,7 @@ export function startNextHand(hostSessionId: string, roomCode: string, seed?: nu
       hasActed: false,
     }));
 
-  if (gamePlayers.length < 2) {
+  if (gamePlayers.length < MIN_PLAYERS_TO_START) {
     throw new Error("至少需要 2 名在线玩家才能开始");
   }
 
@@ -149,6 +160,7 @@ export function startNextHand(hostSessionId: string, roomCode: string, seed?: nu
       pot: 0,
     },
     seed,
+    now,
   );
   syncRoomPlayersFromGame(room);
   return toPublicRoom(room);
@@ -156,6 +168,9 @@ export function startNextHand(hostSessionId: string, roomCode: string, seed?: nu
 
 export function requestTopUp(sessionId: string, roomCode: string, amount: number): PublicRoomState {
   const room = requireRoom(roomCode);
+  if (room.game && room.game.street !== "handComplete" && room.game.street !== "waiting") {
+    throw new Error("补码只能在一局结束后、下一局开始前申请");
+  }
   if (amount <= 0 || !Number.isInteger(amount)) {
     throw new Error("补码数量必须是正整数");
   }
@@ -218,24 +233,68 @@ export function handleHeartbeat(sessionId: string, now = Date.now()): void {
   }
 }
 
-export function sweepOfflinePlayers(now = Date.now()): void {
+export function updatePlayerNickname(sessionId: string, nickname: string): PublicRoomState[] {
+  const changedRooms: PublicRoomState[] = [];
+
+  for (const room of rooms.values()) {
+    const player = room.players.find((item) => item.sessionId === sessionId);
+    if (!player) {
+      continue;
+    }
+
+    player.nickname = nickname;
+    const gamePlayer = room.game?.players.find((item) => item.id === sessionId);
+    if (gamePlayer) {
+      gamePlayer.nickname = nickname;
+    }
+    changedRooms.push(toPublicRoom(room));
+  }
+
+  return changedRooms;
+}
+
+export function getRoomsForSession(sessionId: string): PublicRoomState[] {
+  return [...rooms.values()]
+    .filter((room) => room.players.some((player) => player.sessionId === sessionId))
+    .map(toPublicRoom);
+}
+
+export function sweepOfflinePlayers(now = Date.now()): SweepResult {
+  const changedRooms = new Map<string, PublicRoomState>();
+  let lobbyChanged = false;
+
   for (const [code, room] of rooms) {
     for (const player of room.players) {
       if (player.online && now - player.lastSeenAt > HEARTBEAT_TIMEOUT_MS) {
         player.online = false;
-        foldPlayerIfNeeded(room, player.sessionId);
+        foldPlayerIfNeeded(room, player.sessionId, now);
+        changedRooms.set(code, toPublicRoom(room));
+        lobbyChanged = true;
       }
+    }
+
+    if (timeOutCurrentActor(room, now)) {
+      changedRooms.set(code, toPublicRoom(room));
     }
 
     if (room.players.every((player) => !player.online)) {
       rooms.delete(code);
+      changedRooms.delete(code);
+      lobbyChanged = true;
       continue;
     }
 
     if (!room.players.some((player) => player.sessionId === room.hostSessionId && player.online)) {
       transferHost(room);
+      changedRooms.set(code, toPublicRoom(room));
+      lobbyChanged = true;
     }
   }
+
+  return {
+    changedRooms: [...changedRooms.values()],
+    lobbyChanged,
+  };
 }
 
 export function applyGameAction(sessionId: string, roomCode: string, action: Omit<PlayerAction, "playerId">): PublicRoomState {
@@ -285,7 +344,7 @@ export function resetRoomStoreForTests(): void {
   rooms.clear();
 }
 
-function foldPlayerIfNeeded(room: Room, sessionId: string): void {
+function foldPlayerIfNeeded(room: Room, sessionId: string, now = Date.now()): void {
   if (!room.game || room.game.street === "waiting" || room.game.street === "handComplete") {
     return;
   }
@@ -296,12 +355,35 @@ function foldPlayerIfNeeded(room: Room, sessionId: string): void {
   }
 
   if (room.game.actorId === sessionId) {
-    room.game = applyAction(room.game, { type: "fold", playerId: sessionId });
+    room.game = applyAction(room.game, { type: "fold", playerId: sessionId }, now);
   } else {
     gamePlayer.status = "folded";
-    room.game = advanceIfNeeded(room.game);
+    room.game = advanceIfNeeded(room.game, now);
   }
   syncRoomPlayersFromGame(room);
+}
+
+function timeOutCurrentActor(room: Room, now: number): boolean {
+  if (!room.game?.actorId || !room.game.actionTimeoutAt || now <= room.game.actionTimeoutAt) {
+    return false;
+  }
+
+  if (room.game.street === "straddleDecision") {
+    const timedOutPlayerId = room.game.actorId;
+    room.game = chooseStraddle(room.game, timedOutPlayerId, false, now);
+    const timedOutPlayer = room.game.players.find((player) => player.id === timedOutPlayerId);
+    if (timedOutPlayer) {
+      timedOutPlayer.status = "folded";
+      timedOutPlayer.hasActed = true;
+    }
+    if (room.game.players.filter((player) => player.status !== "folded" && player.status !== "sitting-out").length === 1) {
+      room.game = advanceIfNeeded(room.game, now);
+    }
+  } else {
+    room.game = applyAction(room.game, { type: "fold", playerId: room.game.actorId }, now);
+  }
+  syncRoomPlayersFromGame(room);
+  return true;
 }
 
 function syncRoomPlayersFromGame(room: Room): void {

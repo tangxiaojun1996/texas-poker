@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatCard, type Card } from "../shared/cards";
 import { emitWithAck, socket } from "./client/socket";
 import type {
@@ -9,6 +9,7 @@ import type {
   SessionState,
   SettlementResult,
 } from "./client/types";
+import type { LegalActions } from "../shared/pokerTypes";
 
 type CreateRoomForm = {
   smallBlind: number;
@@ -28,6 +29,7 @@ const initialCreateForm: CreateRoomForm = {
   straddleEnabled: true,
   password: "",
 };
+const nicknameStorageKey = "texas-poker:nickname";
 
 export function App() {
   const [session, setSession] = useState<SessionState | null>(null);
@@ -42,16 +44,42 @@ export function App() {
   const [passwordDraft, setPasswordDraft] = useState("");
   const [settlement, setSettlement] = useState<SettlementResult | null>(null);
   const [message, setMessage] = useState("连接中...");
+  const [now, setNow] = useState(Date.now());
+  const [handToast, setHandToast] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<string[]>([]);
+  const [hostSettingsOpen, setHostSettingsOpen] = useState(false);
+  const lastHandToastKeyRef = useRef<string | null>(null);
+  const nicknameAutoSyncedRef = useRef(false);
 
   const isHost = Boolean(session && room?.hostSessionId === session.id);
   const currentPlayer = room?.players.find((player) => player.sessionId === session?.id);
+  const isMyTurn = Boolean(room?.game?.actorId && room.game.actorId === session?.id);
   const pot = room?.game?.pot ?? 0;
+  const actionSecondsLeft = room?.game?.actionTimeoutAt
+    ? Math.max(0, Math.ceil((room.game.actionTimeoutAt - now) / 1_000))
+    : null;
+  const canRequestTopUp = !room?.game || room.game.street === "handComplete" || room.game.street === "waiting";
+  const pendingTopUpRequests = room?.topUpRequests.filter((request) => request.status === "pending") ?? [];
+  const submittedBetAmount = Number(betAmount);
+  const isSubmittedBetValid = Boolean(
+    privateState &&
+      Number.isInteger(submittedBetAmount) &&
+      submittedBetAmount >= privateState.legalActions.minAmount &&
+      submittedBetAmount <= privateState.legalActions.maxAmount,
+  );
 
   useEffect(() => {
     const onSession = (value: SessionState) => {
-      setSession(value);
-      setNickname(value.nickname);
+      const localNickname = readStoredNickname();
+      const preferredNickname = localNickname ?? value.nickname;
+      setSession({ ...value, nickname: preferredNickname });
+      setNickname(preferredNickname);
       setMessage("已连接");
+
+      if (localNickname && localNickname !== value.nickname && !nicknameAutoSyncedRef.current) {
+        nicknameAutoSyncedRef.current = true;
+        updateNickname(localNickname).catch(showError);
+      }
     };
     const onRooms = (value: LobbyRoomSummary[]) => setRooms(value);
     const onRoom = (value: PublicRoomState | undefined) => {
@@ -61,7 +89,10 @@ export function App() {
         setSettlement(null);
       }
     };
-    const onNotification = (value: string) => setMessage(value);
+    const onNotification = (value: string) => {
+      setMessage(value);
+      setNotifications((items) => [value, ...items].slice(0, 8));
+    };
 
     socket.on("session:state", onSession);
     socket.on("lobby:roomsUpdated", onRooms);
@@ -99,12 +130,52 @@ export function App() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!room?.game?.handResult || room.game.street !== "handComplete") {
+      return;
+    }
+
+    const toastKey = `${room.code}:${room.game.handResult.reason}:${room.game.handResult.winners.join(",")}:${Object.entries(
+      room.game.handResult.payouts,
+    )
+      .map(([playerId, payout]) => `${playerId}:${payout}`)
+      .join("|")}`;
+
+    if (lastHandToastKeyRef.current === toastKey) {
+      return;
+    }
+
+    lastHandToastKeyRef.current = toastKey;
+    setHandToast(buildHandToast(room));
+  }, [room]);
+
+  useEffect(() => {
+    if (!handToast) {
+      return;
+    }
+    const timer = window.setTimeout(() => setHandToast(null), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [handToast]);
+
   const tablePlayers = useMemo(() => room?.players ?? [], [room]);
 
   async function saveNickname() {
-    const result = await emitWithAck<{ nickname: string }, Ack<SessionState>>("session:updateNickname", { nickname });
+    await updateNickname(nickname);
+  }
+
+  async function updateNickname(nextNickname: string) {
+    const result = await emitWithAck<{ nickname: string }, Ack<SessionState>>("session:updateNickname", {
+      nickname: nextNickname,
+    });
     const updated = unwrap(result);
     setSession(updated);
+    setNickname(updated.nickname);
+    localStorage.setItem(nicknameStorageKey, updated.nickname);
     setMessage("昵称已更新");
   }
 
@@ -185,12 +256,9 @@ export function App() {
   }
 
   return (
-    <main className="app-shell" onClick={() => message && setMessage(message)}>
+    <main className={`app-shell ${room ? "room-mode" : ""}`} onClick={() => message && setMessage(message)}>
       <header className="topbar">
-        <div>
-          <p className="eyebrow">Texas Hold'em</p>
-          <h1>朋友德州扑克</h1>
-        </div>
+        <div className="brand-placeholder" aria-hidden="true" />
         <div className="session-card">
           <span>{message}</span>
           <div className="inline-form">
@@ -199,6 +267,13 @@ export function App() {
           </div>
         </div>
       </header>
+
+      {isMyTurn ? (
+        <div className="my-turn-banner">
+          <strong>轮到你决策</strong>
+          {actionSecondsLeft !== null ? <span>{actionSecondsLeft}s</span> : null}
+        </div>
+      ) : null}
 
       {!room ? (
         <section className="grid-layout">
@@ -266,7 +341,9 @@ export function App() {
                         onChange={(event) => setJoinPassword({ ...joinPassword, [item.code]: event.target.value })}
                       />
                     ) : null}
-                    <button onClick={() => joinRoom(item.code).catch(showError)}>加入</button>
+                    <button disabled={item.playerCount >= 9} onClick={() => joinRoom(item.code).catch(showError)}>
+                      {item.playerCount >= 9 ? "已满" : "加入"}
+                    </button>
                   </div>
                 </div>
               ))}
@@ -281,15 +358,44 @@ export function App() {
                 <h2>房间 #{room.code}</h2>
                 <p>
                   盲注 {room.config.smallBlind}/{room.config.bigBlind} ·{" "}
-                  {room.config.straddleEnabled ? "支持 Straddle" : "不支持 Straddle"}
+                  {room.config.straddleEnabled ? "支持 Straddle" : "不支持 Straddle"} · 玩家 {room.players.length}/9
                 </p>
               </div>
-              <button onClick={() => leaveRoom().catch(showError)}>退出房间</button>
+              <div className="room-header-actions">
+                {isHost ? (
+                  <button className="ghost-button" onClick={() => setHostSettingsOpen((open) => !open)}>
+                    房主设置
+                  </button>
+                ) : null}
+                <button onClick={() => leaveRoom().catch(showError)}>退出</button>
+              </div>
             </div>
+
+            {isHost && hostSettingsOpen ? (
+              <div className="host-settings-popover">
+                <button className="primary" onClick={() => startHand().catch(showError)}>
+                  {room.players.filter((player) => player.online).length < 2 ? "人数不够，至少 2 人" : "开始下一局 / 发牌"}
+                </button>
+                <div className="inline-form">
+                  <input placeholder="新密码，留空清除" value={passwordDraft} onChange={(event) => setPasswordDraft(event.target.value)} />
+                  <button onClick={() => setPassword().catch(showError)}>设置密码</button>
+                </div>
+                <button onClick={() => showSettlement().catch(showError)}>结算</button>
+                <button className="danger" onClick={() => dismissRoom().catch(showError)}>
+                  解散房间
+                </button>
+              </div>
+            ) : null}
 
             <div className="poker-table">
               <div className="community">
                 <p>{room.game?.street ?? "waiting"}</p>
+                {room.game?.actorId ? (
+                  <p className="timer">
+                    {room.players.find((player) => player.sessionId === room.game?.actorId)?.nickname ?? "玩家"} 决策中
+                    {actionSecondsLeft !== null ? ` · ${actionSecondsLeft}s` : ""}
+                  </p>
+                ) : null}
                 <div className="cards">
                   {(room.game?.communityCards ?? []).map((card, index) => (
                     <CardView card={card} key={`${formatCard(card)}-${index}`} />
@@ -298,20 +404,27 @@ export function App() {
                 <strong>底池 {pot}</strong>
               </div>
               <div className="seats">
-                {tablePlayers.map((player) => {
+                {tablePlayers.map((player, index) => {
                   const gamePlayer = room.game?.players.find((item) => item.id === player.sessionId);
                   return (
                     <div
-                      className={`seat ${room.game?.actorId === player.sessionId ? "acting" : ""}`}
+                      className={`seat seat-${index + 1} ${room.game?.actorId === player.sessionId ? "acting" : ""}`}
                       key={player.sessionId}
                     >
-                      <strong>
-                        {player.nickname}
-                        {room.hostSessionId === player.sessionId ? " · 房主" : ""}
-                      </strong>
-                      <span>{player.online ? "在线" : "离线"}</span>
-                      <span>筹码 {player.chips}</span>
-                      <span>{gamePlayer?.status ?? "等待"}</span>
+                      <PlayerIcon name={player.nickname} />
+                      <div>
+                        <strong>
+                          {player.nickname}
+                          {room.hostSessionId === player.sessionId ? " · 房主" : ""}
+                        </strong>
+                        {room.game?.actorId === player.sessionId && actionSecondsLeft !== null ? (
+                          <span className="seat-timer">{actionSecondsLeft}s</span>
+                        ) : null}
+                        <span>{player.online ? "在线" : "离线"}</span>
+                        <span>筹码 {player.chips}</span>
+                        <span>已补 {Math.max(0, player.totalInvested - 1000)}</span>
+                        <span>{gamePlayer?.status ?? "等待"}</span>
+                      </div>
                     </div>
                   );
                 })}
@@ -355,15 +468,22 @@ export function App() {
                     placeholder={`${privateState.legalActions.minAmount} - ${privateState.legalActions.maxAmount}`}
                   />
                   {[1 / 3, 1 / 2, 2 / 3, 1].map((ratio) => (
-                    <button key={ratio} onClick={() => setBetAmount(String(Math.max(1, Math.floor(pot * ratio))))}>
+                    <button
+                      key={ratio}
+                      onClick={() => setBetAmount(String(clampWager(Math.floor(pot * ratio), privateState.legalActions)))}
+                    >
                       底池 {ratio === 1 ? "1" : ratio === 1 / 3 ? "1/3" : ratio === 1 / 2 ? "1/2" : "2/3"}
                     </button>
                   ))}
                   {privateState.legalActions.canBet ? (
-                    <button onClick={() => act({ type: "bet", amount: Number(betAmount) }).catch(showError)}>下注</button>
+                    <button disabled={!isSubmittedBetValid} onClick={() => act({ type: "bet", amount: submittedBetAmount }).catch(showError)}>
+                      下注
+                    </button>
                   ) : null}
                   {privateState.legalActions.canRaise ? (
-                    <button onClick={() => act({ type: "raise", amount: Number(betAmount) }).catch(showError)}>加注</button>
+                    <button disabled={!isSubmittedBetValid} onClick={() => act({ type: "raise", amount: submittedBetAmount }).catch(showError)}>
+                      加注到
+                    </button>
                   ) : null}
                 </div>
               </div>
@@ -371,42 +491,41 @@ export function App() {
           </article>
 
           <aside className="side-panel">
-            <h2>房间工具</h2>
+            <h2>我的信息</h2>
+            <div className="room-nickname-editor">
+              <label>
+                我的昵称
+                <input value={nickname} onChange={(event) => setNickname(event.target.value)} placeholder="修改我的昵称" />
+              </label>
+              <button onClick={() => saveNickname().catch(showError)}>更新昵称</button>
+            </div>
+            <p>玩家人数：{room.players.length}/9</p>
             <p>我的筹码：{currentPlayer?.chips ?? 0}</p>
+            <p>我的累计补码：{Math.max(0, (currentPlayer?.totalInvested ?? 1000) - 1000)}</p>
             <div className="inline-form">
               <input type="number" value={topUpAmount} onChange={(event) => setTopUpAmount(event.target.value)} />
-              <button onClick={() => requestTopUp().catch(showError)}>申请补码</button>
+              <button disabled={!canRequestTopUp} onClick={() => requestTopUp().catch(showError)}>
+                {canRequestTopUp ? "申请补码" : "牌局中不可补码"}
+              </button>
             </div>
 
-            {isHost ? (
-              <>
-                <button className="primary" onClick={() => startHand().catch(showError)}>
-                  开始下一局 / 发牌
-                </button>
-                <div className="inline-form">
-                  <input placeholder="新密码，留空清除" value={passwordDraft} onChange={(event) => setPasswordDraft(event.target.value)} />
-                  <button onClick={() => setPassword().catch(showError)}>设置密码</button>
+            <div className="message-list">
+              <h3>消息</h3>
+              {pendingTopUpRequests.length === 0 && notifications.length === 0 ? <p className="muted">暂无消息</p> : null}
+              {pendingTopUpRequests.map((request) => (
+                <div className="request-row" key={request.id}>
+                  <span>
+                    {room.players.find((player) => player.sessionId === request.sessionId)?.nickname} 申请 {request.amount}
+                  </span>
+                  {isHost ? <button onClick={() => approveTopUp(request.id).catch(showError)}>批准</button> : null}
                 </div>
-                <button onClick={() => showSettlement().catch(showError)}>结算</button>
-                <button className="danger" onClick={() => dismissRoom().catch(showError)}>
-                  解散房间
-                </button>
-                <h3>补码申请</h3>
-                {room.topUpRequests.filter((request) => request.status === "pending").length === 0 ? (
-                  <p className="muted">暂无申请</p>
-                ) : null}
-                {room.topUpRequests
-                  .filter((request) => request.status === "pending")
-                  .map((request) => (
-                    <div className="request-row" key={request.id}>
-                      <span>
-                        {room.players.find((player) => player.sessionId === request.sessionId)?.nickname} 申请 {request.amount}
-                      </span>
-                      <button onClick={() => approveTopUp(request.id).catch(showError)}>批准</button>
-                    </div>
-                  ))}
-              </>
-            ) : null}
+              ))}
+              {notifications.map((item, index) => (
+                <div className="notice-row" key={`${item}-${index}`}>
+                  {item}
+                </div>
+              ))}
+            </div>
 
             {settlement ? (
               <div className="settlement">
@@ -423,13 +542,93 @@ export function App() {
           </aside>
         </section>
       )}
+      {handToast ? <div className="toast">{handToast}</div> : null}
     </main>
   );
 }
 
 function CardView({ card }: { card: Card }) {
   const red = card.suit === "h" || card.suit === "d";
-  return <span className={`card ${red ? "red" : ""}`}>{formatCard(card).toUpperCase()}</span>;
+  return (
+    <span className={`card ${red ? "red" : ""}`}>
+      <span>{rankLabel(card.rank)}</span>
+      <SuitIcon suit={card.suit} />
+    </span>
+  );
+}
+
+function PlayerIcon({ name }: { name: string }) {
+  return <span className="player-icon">{name.trim().slice(0, 1).toUpperCase() || "玩"}</span>;
+}
+
+function SuitIcon({ suit }: { suit: Card["suit"] }) {
+  if (suit === "h") {
+    return (
+      <svg className="suit-icon" viewBox="0 0 24 24" aria-label="红桃">
+        <path d="M12 21s-7.8-4.9-9.6-10.1C1 6.7 3.4 3.5 7 3.5c2.1 0 3.6 1.1 5 3 1.4-1.9 2.9-3 5-3 3.6 0 6 3.2 4.6 7.4C19.8 16.1 12 21 12 21Z" />
+      </svg>
+    );
+  }
+
+  if (suit === "d") {
+    return (
+      <svg className="suit-icon" viewBox="0 0 24 24" aria-label="方块">
+        <path d="M12 2 21 12 12 22 3 12 12 2Z" />
+      </svg>
+    );
+  }
+
+  if (suit === "s") {
+    return (
+      <svg className="suit-icon" viewBox="0 0 24 24" aria-label="黑桃">
+        <path d="M12 2s8.2 5.8 9.3 10.4c.8 3.2-1.2 5.7-4.1 5.7-1.7 0-3.1-.8-4.1-2.2.3 2.1 1 3.5 2.2 5.1H8.7c1.2-1.6 1.9-3 2.2-5.1-1 1.4-2.4 2.2-4.1 2.2-2.9 0-4.9-2.5-4.1-5.7C3.8 7.8 12 2 12 2Z" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg className="suit-icon" viewBox="0 0 24 24" aria-label="梅花">
+      <path d="M9.2 10.4A4.2 4.2 0 1 1 12 6.5a4.2 4.2 0 1 1 2.8 3.9 4.2 4.2 0 1 1-4.5 6.8c.2 1.6.8 2.8 2 4H7.8c1.2-1.2 1.8-2.4 2-4a4.2 4.2 0 1 1-.6-6.8Z" />
+    </svg>
+  );
+}
+
+function rankLabel(rank: Card["rank"]) {
+  if (rank === 14) return "A";
+  if (rank === 13) return "K";
+  if (rank === 12) return "Q";
+  if (rank === 11) return "J";
+  return String(rank);
+}
+
+function buildHandToast(room: PublicRoomState) {
+  const result = room.game?.handResult;
+  if (!room.game || !result) {
+    return "";
+  }
+
+  const winnerNames = result.winners.map((winnerId) => findNickname(room, winnerId)).join("、");
+  const playerNets = room.game.players
+    .map((player) => {
+      const net = (result.payouts[player.id] ?? 0) - player.committedTotal;
+      return `${findNickname(room, player.id)} ${net >= 0 ? "+" : ""}${net}`;
+    })
+    .join("，");
+
+  return `${winnerNames} 赢了。本局输赢：${playerNets}`;
+}
+
+function findNickname(room: PublicRoomState, sessionId: string) {
+  return room.players.find((player) => player.sessionId === sessionId)?.nickname ?? sessionId;
+}
+
+function clampWager(amount: number, legalActions: LegalActions) {
+  return Math.min(legalActions.maxAmount, Math.max(legalActions.minAmount, amount));
+}
+
+function readStoredNickname() {
+  const value = localStorage.getItem(nicknameStorageKey)?.trim();
+  return value || undefined;
 }
 
 function unwrap<T>(ack: Ack<T>): T {

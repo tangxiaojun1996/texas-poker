@@ -3,7 +3,9 @@ import { compareHands, evaluateBestHand } from "./handEvaluator";
 import { buildPots } from "./pots";
 import type { GamePlayer, GameState, HandResult, LegalActions, PlayerAction, Street } from "./pokerTypes";
 
-export function startHand(state: GameState, seed?: number): GameState {
+export const ACTION_TIMEOUT_MS = 45_000;
+
+export function startHand(state: GameState, seed?: number, now = Date.now()): GameState {
   const players = state.players.map((player) => {
     const chips = player.chips + player.pendingTopUp;
     return {
@@ -32,6 +34,8 @@ export function startHand(state: GameState, seed?: number): GameState {
     minRaise: state.config.bigBlind,
     pot: 0,
     actorId: undefined,
+    actionStartedAt: undefined,
+    actionTimeoutAt: undefined,
     smallBlindPlayerId: players[smallBlindIndex].id,
     bigBlindPlayerId: players[bigBlindIndex].id,
     straddlePlayerId: undefined,
@@ -44,15 +48,15 @@ export function startHand(state: GameState, seed?: number): GameState {
 
   if (state.config.straddleEnabled) {
     nextState.actorId = players[nextSeatIndex(players, bigBlindIndex, true)].id;
-    return nextState;
+    return withActionTimer(nextState, now);
   }
 
   nextState = dealHoleCards(nextState);
   nextState.actorId = players[nextSeatIndex(players, bigBlindIndex, true)].id;
-  return nextState;
+  return withActionTimer(nextState, now);
 }
 
-export function chooseStraddle(state: GameState, playerId: string, enabled: boolean): GameState {
+export function chooseStraddle(state: GameState, playerId: string, enabled: boolean, now = Date.now()): GameState {
   assertStreet(state, "straddleDecision");
   assertActor(state, playerId);
 
@@ -66,7 +70,7 @@ export function chooseStraddle(state: GameState, playerId: string, enabled: bool
   nextState = dealHoleCards(nextState);
   nextState.street = "preflop";
   nextState.actorId = nextActivePlayerIdAfter(nextState, playerId);
-  return nextState;
+  return withActionTimer(nextState, now);
 }
 
 export function getLegalActions(state: GameState, playerId: string): LegalActions {
@@ -91,7 +95,7 @@ export function getLegalActions(state: GameState, playerId: string): LegalAction
   };
 }
 
-export function applyAction(state: GameState, action: PlayerAction): GameState {
+export function applyAction(state: GameState, action: PlayerAction, now = Date.now()): GameState {
   assertActor(state, action.playerId);
   let nextState = cloneState(state);
   const player = getPlayer(nextState, action.playerId);
@@ -142,23 +146,27 @@ export function applyAction(state: GameState, action: PlayerAction): GameState {
   }
 
   nextState.pot = calculatePot(nextState.players);
-  return advanceIfNeeded(nextState);
+  return advanceIfNeeded(nextState, now);
 }
 
-export function advanceIfNeeded(state: GameState): GameState {
+export function advanceIfNeeded(state: GameState, now = Date.now()): GameState {
   const remaining = state.players.filter((player) => player.status !== "folded" && player.status !== "sitting-out");
   if (remaining.length === 1) {
     return completeByFold(state, remaining[0].id);
   }
 
   if (!isBettingRoundComplete(state)) {
-    return {
+    return withActionTimer({
       ...state,
       actorId: nextActivePlayerIdAfter(state, state.actorId),
-    };
+    }, now);
   }
 
-  return advanceStreet(state);
+  if (shouldRunOutToShowdown(state)) {
+    return runOutToShowdown(state);
+  }
+
+  return advanceStreet(state, now);
 }
 
 export function settleHand(state: GameState): HandResult {
@@ -197,7 +205,7 @@ export function settleHand(state: GameState): HandResult {
   };
 }
 
-function advanceStreet(state: GameState): GameState {
+function advanceStreet(state: GameState, now: number): GameState {
   const street = nextStreet(state.street);
   let nextState = resetStreet(cloneState(state), street);
 
@@ -216,12 +224,43 @@ function advanceStreet(state: GameState): GameState {
       players,
       street: "handComplete",
       actorId: undefined,
+      actionStartedAt: undefined,
+      actionTimeoutAt: undefined,
       handResult,
     };
   }
 
   nextState.actorId = firstPostflopActor(nextState);
-  return nextState;
+  return withActionTimer(nextState, now);
+}
+
+function shouldRunOutToShowdown(state: GameState): boolean {
+  const contenders = state.players.filter((player) => player.status !== "folded" && player.status !== "sitting-out");
+  const playersWhoCanStillBet = contenders.filter((player) => player.status === "active" && player.chips > 0);
+
+  return contenders.length > 1 && playersWhoCanStillBet.length <= 1;
+}
+
+function runOutToShowdown(state: GameState): GameState {
+  let nextState = cloneState(state);
+  const missingCommunityCards = 5 - nextState.communityCards.length;
+  if (missingCommunityCards > 0) {
+    nextState = dealCommunityCards(nextState, missingCommunityCards);
+  }
+
+  const handResult = settleHand(nextState);
+  return {
+    ...nextState,
+    players: nextState.players.map((player) => ({
+      ...player,
+      chips: player.chips + (handResult.payouts[player.id] ?? 0),
+    })),
+    street: "handComplete",
+    actorId: undefined,
+    actionStartedAt: undefined,
+    actionTimeoutAt: undefined,
+    handResult,
+  };
 }
 
 function nextStreet(street: Street): Street {
@@ -244,6 +283,8 @@ function resetStreet(state: GameState, street: Street): GameState {
     currentBet: 0,
     minRaise: state.config.bigBlind,
     actorId: undefined,
+    actionStartedAt: undefined,
+    actionTimeoutAt: undefined,
     players: state.players.map((player) => ({
       ...player,
       committedThisStreet: 0,
@@ -316,12 +357,30 @@ function completeByFold(state: GameState, winnerId: string): GameState {
     players,
     street: "handComplete",
     actorId: undefined,
+    actionStartedAt: undefined,
+    actionTimeoutAt: undefined,
     pot,
     handResult: {
       winners: [winnerId],
       payouts: { [winnerId]: pot },
       reason: "fold",
     },
+  };
+}
+
+function withActionTimer(state: GameState, now: number): GameState {
+  if (!state.actorId || state.street === "handComplete" || state.street === "waiting") {
+    return {
+      ...state,
+      actionStartedAt: undefined,
+      actionTimeoutAt: undefined,
+    };
+  }
+
+  return {
+    ...state,
+    actionStartedAt: now,
+    actionTimeoutAt: now + ACTION_TIMEOUT_MS,
   };
 }
 

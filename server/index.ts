@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Server } from "socket.io";
 import { createServer as createViteServer } from "vite";
-import { registerSocketHandlers } from "./socketHandlers";
+import { broadcastLobby, emitRoom, registerSocketHandlers } from "./socketHandlers";
 import { getOrCreateSession } from "./session";
 import { sweepOfflinePlayers } from "./roomStore";
 
@@ -32,7 +32,15 @@ app.get("/health", (_request, response) => {
 });
 
 registerSocketHandlers(io);
-setInterval(() => sweepOfflinePlayers(Date.now()), 5_000);
+setInterval(() => {
+  const result = sweepOfflinePlayers(Date.now());
+  for (const room of result.changedRooms) {
+    emitRoom(io, room);
+  }
+  if (result.lobbyChanged || result.changedRooms.length > 0) {
+    broadcastLobby(io);
+  }
+}, 1_000);
 
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(path.join(rootDir, "dist")));

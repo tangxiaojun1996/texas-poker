@@ -68,6 +68,8 @@ export type GameState = {
   minRaise: number;
   pot: number;
   actorId?: string;
+  actionStartedAt?: number;
+  actionTimeoutAt?: number;
   smallBlindPlayerId?: string;
   bigBlindPlayerId?: string;
   straddlePlayerId?: string;

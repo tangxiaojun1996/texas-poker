@@ -14,6 +14,7 @@ import {
   requestTopUp,
   setRoomPassword,
   startNextHand,
+  updatePlayerNickname,
   type PublicRoomState,
 } from "./roomStore";
 import type { Card } from "../shared/cards";
@@ -47,6 +48,12 @@ export function registerSocketHandlers(io: Server): void {
 
     socket.on("session:updateNickname", ack(socket, (input: { nickname: string }) => {
       const updated = updateNickname(session.id, input.nickname);
+      const changedRooms = updatePlayerNickname(session.id, updated.nickname);
+      for (const room of changedRooms) {
+        emitRoom(io, room);
+        io.to(room.code).emit("notification", `${updated.nickname} 更新了昵称`);
+      }
+      broadcastLobby(io);
       return { id: updated.id, nickname: updated.nickname };
     }));
 
@@ -138,7 +145,7 @@ function ack<TInput, TOutput>(socket: Socket, handler: Handler<TInput, TOutput>)
   };
 }
 
-function emitRoom(io: Server, room: PublicRoomState): void {
+export function emitRoom(io: Server, room: PublicRoomState): void {
   io.to(room.code).emit("room:state", room);
   io.to(room.code).emit("game:state", room.game);
 
@@ -151,13 +158,27 @@ function emitRoom(io: Server, room: PublicRoomState): void {
     const privateState: PrivatePlayerState = {
       playerId: player.sessionId,
       holeCards: gamePlayer?.holeCards ?? [],
-      legalActions: gamePlayer ? getLegalActions(room.game, player.sessionId) : getLegalActions(room.game, ""),
+      legalActions: gamePlayer ? getLegalActions(room.game, player.sessionId) : emptyLegalActions(),
     };
     io.to(room.code).emit(`game:privateState:${player.sessionId}`, privateState);
   }
 }
 
-function broadcastLobby(io: Server): void {
+function emptyLegalActions(): LegalActions {
+  return {
+    canFold: false,
+    canCheck: false,
+    canCall: false,
+    callAmount: 0,
+    canBet: false,
+    canRaise: false,
+    minAmount: 0,
+    maxAmount: 0,
+    canAllIn: false,
+  };
+}
+
+export function broadcastLobby(io: Server): void {
   io.emit("lobby:roomsUpdated", summarizeRooms(listRooms()));
 }
 

@@ -35,6 +35,24 @@ function state(straddleEnabled = false): GameState {
   };
 }
 
+function customState(players: GamePlayer[]): GameState {
+  return {
+    config: {
+      smallBlind: 5,
+      bigBlind: 10,
+      straddleEnabled: false,
+    },
+    players,
+    buttonIndex: -1,
+    deck: [],
+    communityCards: [],
+    street: "waiting",
+    currentBet: 0,
+    minRaise: 10,
+    pot: 0,
+  };
+}
+
 describe("game engine", () => {
   it("starts normal preflop action left of the big blind", () => {
     const hand = startHand(state(false), 1);
@@ -120,5 +138,31 @@ describe("game engine", () => {
 
     expect(hand.players[0].pendingTopUp).toBe(0);
     expect(hand.players[0].chips).toBe(300);
+  });
+
+  it("runs out the board and settles when only one player can still bet after all-in call", () => {
+    let hand = startHand(customState([player("a", 20), player("b", 100)]), 1);
+
+    hand = applyAction(hand, { type: "all-in", playerId: "a" });
+    hand = applyAction(hand, { type: "call", playerId: "b" });
+
+    expect(hand.street).toBe("handComplete");
+    expect(hand.communityCards).toHaveLength(5);
+    expect(hand.handResult?.reason).toBe("showdown");
+    expect(hand.actorId).toBeUndefined();
+  });
+
+  it("skips all-in players but lets two stacked players continue betting", () => {
+    let hand = startHand(customState([player("a", 100), player("b", 20), player("c", 100)]), 1);
+
+    hand = applyAction(hand, { type: "call", playerId: "a" });
+    hand = applyAction(hand, { type: "all-in", playerId: "b" });
+    hand = applyAction(hand, { type: "call", playerId: "c" });
+    hand = applyAction(hand, { type: "call", playerId: "a" });
+
+    expect(hand.street).toBe("flop");
+    expect(hand.communityCards).toHaveLength(3);
+    expect(hand.actorId).toBe("c");
+    expect(hand.players.find((item) => item.id === "b")?.status).toBe("all-in");
   });
 });

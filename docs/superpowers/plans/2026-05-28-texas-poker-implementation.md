@@ -302,6 +302,8 @@ Write `tests/gameEngine.test.ts` to cover:
 - Straddler acts last preflop.
 - Flop/turn/river reveal 3/1/1 community cards.
 - One remaining non-folded player wins immediately.
+- If all-in leaves fewer than two players able to continue betting, the engine deals remaining community cards and settles showdown immediately.
+- If all-in still leaves at least two players able to continue betting, all-in players are skipped and the remaining players continue betting.
 - Mid-hand top-up is not added to `currentChips` until next hand.
 
 - [ ] **Step 3: Run tests to verify failure**
@@ -574,13 +576,14 @@ Add lobby UI:
 
 Add room UI:
 
-- poker table container.
+- Mobile landscape-first poker table container that fits the active game, seats, own hand, action controls, personal info, and messages into one screen where possible.
 - player seats around table with nickname, chip count, host mark, online/offline, folded/all-in/current actor status.
 - community cards in center.
 - pot and street labels.
 - private hole cards for current player only.
 - action panel visible only when current player can act.
-- host panel with start next hand, settlement, password, dismiss room, and top-up approvals.
+- top-right host settings popover with start next hand, settlement, password, and dismiss room.
+- side message list containing top-up requests and room notifications; host can approve top-up requests from this list.
 
 - [ ] **Step 4: Implement action panel**
 
@@ -588,9 +591,14 @@ Action panel behavior:
 
 - Show only legal buttons returned from server.
 - Use amount input for bet/raise.
-- Quick amount buttons compute from current visible pot: `Math.floor(pot * ratio)`.
+- Quick amount buttons compute from current visible pot: `Math.floor(pot * ratio)`, then clamp to the server-provided legal min/max amount.
 - Quick amount buttons only set the input value.
+- Bet/raise submit buttons stay disabled until the amount is within the legal min/max range. Raise labels should make clear the amount is "raise to" the final total for this street, not an incremental raise size.
 - Submit through `game:act`; display server errors.
+
+- [ ] **Step 4a: Restrict top-up timing**
+
+Only enable top-up request UI when there is no active hand or the previous hand is complete. Server-side `requestTopUp()` must reject requests while a hand is in progress with a clear error, so mobile clients cannot bypass the rule.
 
 - [ ] **Step 5: Implement heartbeat**
 
@@ -607,7 +615,7 @@ useEffect(() => {
 
 - [ ] **Step 6: Style playable UI**
 
-Modify `src/styles.css` with dark green poker table styling, card rectangles, readable forms, action buttons, and responsive layout for laptop and mobile widths.
+Modify `src/styles.css` with dark green poker table styling, card rectangles, readable forms, action buttons, and responsive layout for laptop and mobile widths. For mobile landscape, hide nonessential chrome, use a compact two-column layout with the table on the left and messages/personal controls on the right, and keep the active hand usable without vertical scrolling where possible.
 
 - [ ] **Step 7: Verify UI builds**
 
