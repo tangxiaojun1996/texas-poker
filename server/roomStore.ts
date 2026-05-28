@@ -1,4 +1,4 @@
-import { advanceIfNeeded, applyAction, startHand } from "../shared/gameEngine";
+import { advanceIfNeeded, applyAction, chooseStraddle, startHand } from "../shared/gameEngine";
 import type { GameState, PlayerAction, RoomConfig } from "../shared/pokerTypes";
 
 const HEARTBEAT_TIMEOUT_MS = 30_000;
@@ -246,6 +246,31 @@ export function applyGameAction(sessionId: string, roomCode: string, action: Omi
   room.game = applyAction(room.game, { ...action, playerId: sessionId } as PlayerAction);
   syncRoomPlayersFromGame(room);
   return toPublicRoom(room);
+}
+
+export function chooseRoomStraddle(
+  sessionId: string,
+  roomCode: string,
+  enabled: boolean,
+): PublicRoomState {
+  const room = requireRoom(roomCode);
+  if (!room.game) {
+    throw new Error("当前没有进行中的牌局");
+  }
+  room.game = chooseStraddle(room.game, sessionId, enabled);
+  syncRoomPlayersFromGame(room);
+  return toPublicRoom(room);
+}
+
+export function setRoomPassword(hostSessionId: string, roomCode: string, password?: string): PublicRoomState {
+  const room = requireHostRoom(hostSessionId, roomCode);
+  room.password = normalizePassword(password);
+  return toPublicRoom(room);
+}
+
+export function dismissRoom(hostSessionId: string, roomCode: string): void {
+  requireHostRoom(hostSessionId, roomCode);
+  rooms.delete(roomCode);
 }
 
 export function getRoom(roomCode: string): Room | undefined {
