@@ -23,28 +23,41 @@ select {
 }
 
 .app-shell {
-  display: grid;
   min-height: 100vh;
-  place-items: center;
   padding: 24px;
   background:
     radial-gradient(circle at top, rgba(41, 146, 90, 0.32), transparent 36rem),
     #07130d;
 }
 
-.hero-card {
-  width: min(720px, 100%);
-  padding: 40px;
+.topbar,
+.panel,
+.table-panel,
+.side-panel {
   border: 1px solid rgba(247, 242, 223, 0.16);
-  border-radius: 28px;
+  border-radius: 24px;
   background: rgba(7, 19, 13, 0.78);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
-  text-align: center;
 }
 
-.hero-card h1 {
-  margin: 0 0 12px;
-  font-size: clamp(36px, 7vw, 72px);
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 24px;
+  padding: 22px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 0;
+  font-size: clamp(32px, 6vw, 56px);
 }
 
 .eyebrow {
@@ -53,4 +66,226 @@ select {
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
+}
+
+.grid-layout,
+.table-layout {
+  display: grid;
+  gap: 20px;
+}
+
+.grid-layout {
+  grid-template-columns: minmax(280px, 420px) 1fr;
+}
+
+.table-layout {
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+
+.panel,
+.table-panel,
+.side-panel {
+  padding: 22px;
+}
+
+.session-card,
+.inline-form,
+.button-row,
+.bet-box,
+.join-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+  color: rgba(247, 242, 223, 0.78);
+}
+
+input {
+  min-width: 0;
+  border: 1px solid rgba(247, 242, 223, 0.18);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: #f7f2df;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+button {
+  cursor: pointer;
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: #09150e;
+  background: #f1c15d;
+  font-weight: 800;
+}
+
+button:hover {
+  filter: brightness(1.05);
+}
+
+.primary {
+  background: #5df19a;
+}
+
+.danger {
+  color: #fff;
+  background: #d94f4f;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+}
+
+.room-list {
+  display: grid;
+  gap: 12px;
+}
+
+.room-row,
+.request-row,
+.settlement-row,
+.room-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.room-row,
+.request-row,
+.settlement-row {
+  border: 1px solid rgba(247, 242, 223, 0.12);
+  border-radius: 16px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.muted {
+  color: rgba(247, 242, 223, 0.58);
+}
+
+.poker-table {
+  position: relative;
+  display: grid;
+  min-height: 460px;
+  margin: 18px 0;
+  place-items: center;
+  border: 14px solid #5b3520;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.08), transparent 38%),
+    #116b3a;
+}
+
+.community {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  border-radius: 20px;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.cards {
+  display: flex;
+  min-height: 58px;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.card {
+  display: grid;
+  width: 42px;
+  height: 58px;
+  place-items: center;
+  border-radius: 8px;
+  color: #151515;
+  background: #f7f2df;
+  font-weight: 900;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+}
+
+.card.red {
+  color: #c53131;
+}
+
+.seats {
+  position: absolute;
+  inset: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 12px;
+  pointer-events: none;
+}
+
+.seat {
+  align-self: start;
+  max-width: 210px;
+  border: 1px solid rgba(247, 242, 223, 0.16);
+  border-radius: 16px;
+  padding: 10px;
+  background: rgba(7, 19, 13, 0.78);
+}
+
+.seat:nth-child(even) {
+  justify-self: end;
+}
+
+.seat.acting {
+  outline: 3px solid #f1c15d;
+}
+
+.seat span {
+  display: block;
+  color: rgba(247, 242, 223, 0.72);
+  font-size: 13px;
+}
+
+.my-hand,
+.action-panel,
+.settlement {
+  margin-top: 16px;
+  border: 1px solid rgba(247, 242, 223, 0.12);
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.side-panel {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.win {
+  color: #5df19a;
+}
+
+.lose {
+  color: #ff7777;
+}
+
+@media (max-width: 900px) {
+  .topbar,
+  .room-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .grid-layout,
+  .table-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .poker-table {
+    border-radius: 44px;
+  }
 }
