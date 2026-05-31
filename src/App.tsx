@@ -752,23 +752,107 @@ function SettlementModal({ settlement, onClose }: { settlement: SettlementResult
   );
 }
 
-function ActionButtons(_props: {
+function ActionButtons({
+  legalActions,
+  raisePanelOpen,
+  onToggleRaise,
+  onAct,
+}: {
   legalActions: LegalActions;
   raisePanelOpen: boolean;
   onToggleRaise: () => void;
   onAct: (action: ActionInput) => void;
 }) {
-  return null;
+  const showCallSlot = legalActions.canCall || legalActions.canCheck;
+  const showRaiseSlot = legalActions.canBet || legalActions.canRaise;
+
+  return (
+    <div className="action-stack">
+      {legalActions.canFold ? (
+        <button className="action-btn fold" onClick={() => onAct({ type: "fold" })}>
+          弃牌
+        </button>
+      ) : null}
+      {showCallSlot ? (
+        legalActions.canCall ? (
+          <button className="action-btn call" onClick={() => onAct({ type: "call" })}>
+            跟注 {legalActions.callAmount}
+          </button>
+        ) : (
+          <button className="action-btn check" onClick={() => onAct({ type: "check" })}>
+            过牌
+          </button>
+        )
+      ) : null}
+      {showRaiseSlot ? (
+        <button className={`action-btn raise ${raisePanelOpen ? "active" : ""}`} onClick={onToggleRaise}>
+          {legalActions.canRaise ? "加注" : "下注"}
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
-function RaiseSubPanel(_props: {
+function RaiseSubPanel({
+  bigBlind,
+  legalActions,
+  betAmount,
+  setBetAmount,
+  onSubmit,
+}: {
   bigBlind: number;
   legalActions: LegalActions;
   betAmount: string;
   setBetAmount: (value: string) => void;
   onSubmit: (action: ActionInput) => void;
 }) {
-  return null;
+  const min = legalActions.minAmount;
+  const max = legalActions.maxAmount;
+
+  useEffect(() => {
+    if (betAmount === "") {
+      setBetAmount(String(min));
+    }
+  }, [betAmount, min, setBetAmount]);
+
+  const numeric = Number(betAmount);
+  const valid = Number.isInteger(numeric) && numeric >= min && numeric <= max;
+
+  function adjust(delta: number) {
+    const current = Number.isFinite(numeric) ? numeric : min;
+    const next = Math.min(max, Math.max(min, current + delta));
+    setBetAmount(String(next));
+  }
+
+  function submit() {
+    if (!valid) return;
+    if (legalActions.canRaise) {
+      onSubmit({ type: "raise", amount: numeric });
+    } else if (legalActions.canBet) {
+      onSubmit({ type: "bet", amount: numeric });
+    }
+  }
+
+  return (
+    <div className="raise-subpanel">
+      <button className="step-btn" disabled={numeric - bigBlind < min} onClick={() => adjust(-bigBlind)} aria-label="减少">−</button>
+      <input
+        type="number"
+        className="raise-input"
+        value={betAmount}
+        min={min}
+        max={max}
+        onChange={(event) => setBetAmount(event.target.value)}
+      />
+      <button className="step-btn" disabled={numeric + bigBlind > max} onClick={() => adjust(bigBlind)} aria-label="增加">+</button>
+      {legalActions.canAllIn ? (
+        <button className="all-in-btn" onClick={() => setBetAmount(String(max))}>All-in</button>
+      ) : null}
+      <button className="confirm-btn" disabled={!valid} onClick={submit}>
+        {legalActions.canRaise ? `加注到 ${valid ? numeric : "?"}` : `下注 ${valid ? numeric : "?"}`}
+      </button>
+    </div>
+  );
 }
 
 function CardView({ card }: { card: Card }) {
