@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatCard, type Card } from "../shared/cards";
 import { emitWithAck, socket } from "./client/socket";
 import type {
@@ -22,6 +22,8 @@ type ActionInput = {
   type: string;
   amount?: number;
 };
+
+type GamePlayer = NonNullable<PublicRoomState["game"]>["players"][number];
 
 const initialCreateForm: CreateRoomForm = {
   smallBlind: 5,
@@ -544,6 +546,161 @@ export function App() {
       )}
       {handToast ? <div className="toast">{handToast}</div> : null}
     </main>
+  );
+}
+
+function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+        <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
+        <h3>{title}</h3>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function PlayerDetailModal({
+  player,
+  gamePlayer,
+  isHost,
+  onClose,
+}: {
+  player: PublicRoomState["players"][number];
+  gamePlayer?: GamePlayer;
+  isHost: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <ModalShell title={`${player.nickname}${isHost ? " · 房主" : ""}`} onClose={onClose}>
+      <div className="modal-row">
+        <span>状态</span>
+        <span>
+          <span className={`online-dot ${player.online ? "" : "offline"}`} /> {player.online ? "在线" : "离线"}
+        </span>
+      </div>
+      <div className="modal-row">
+        <span>当前筹码</span>
+        <span>{player.chips}</span>
+      </div>
+      <div className="modal-row">
+        <span>累计补码</span>
+        <span>{Math.max(0, player.totalInvested - 1000)}</span>
+      </div>
+      <div className="modal-row">
+        <span>本局状态</span>
+        <span>{gamePlayer?.status ?? "等待"}</span>
+      </div>
+    </ModalShell>
+  );
+}
+
+function MyProfileModal({
+  nickname,
+  onNicknameChange,
+  onNicknameSave,
+  chips,
+  topUp,
+  topUpAmount,
+  onTopUpAmountChange,
+  onRequestTopUp,
+  canRequestTopUp,
+  onClose,
+}: {
+  nickname: string;
+  onNicknameChange: (value: string) => void;
+  onNicknameSave: () => void;
+  chips: number;
+  topUp: number;
+  topUpAmount: string;
+  onTopUpAmountChange: (value: string) => void;
+  onRequestTopUp: () => void;
+  canRequestTopUp: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <ModalShell title="我的信息" onClose={onClose}>
+      <label>
+        我的昵称
+        <input value={nickname} onChange={(event) => onNicknameChange(event.target.value)} />
+      </label>
+      <button onClick={onNicknameSave}>更新昵称</button>
+      <div style={{ height: 12 }} />
+      <div className="modal-row">
+        <span>我的筹码</span>
+        <span>{chips}</span>
+      </div>
+      <div className="modal-row">
+        <span>累计补码</span>
+        <span>{topUp}</span>
+      </div>
+      <label>
+        申请补码（金额）
+        <input type="number" value={topUpAmount} onChange={(event) => onTopUpAmountChange(event.target.value)} />
+      </label>
+      <button disabled={!canRequestTopUp} onClick={onRequestTopUp}>
+        {canRequestTopUp ? "申请补码" : "牌局中不可补码"}
+      </button>
+    </ModalShell>
+  );
+}
+
+function TopUpRequestsDrawer({
+  requests,
+  isHost,
+  canApprove,
+  findNicknameById,
+  onApprove,
+  onClose,
+}: {
+  requests: PublicRoomState["topUpRequests"];
+  isHost: boolean;
+  canApprove: boolean;
+  findNicknameById: (sessionId: string) => string;
+  onApprove: (requestId: string) => void;
+  onClose: () => void;
+}) {
+  const pending = requests.filter((request) => request.status === "pending");
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <aside className="drawer-panel" onClick={(event) => event.stopPropagation()}>
+        <div className="drawer-header">
+          <h3 style={{ margin: 0 }}>补码申请</h3>
+          <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
+        </div>
+        <div className="drawer-body">
+          {pending.length === 0 ? <p className="muted">暂无待处理申请</p> : null}
+          {pending.map((request) => (
+            <div className="request-row" key={request.id}>
+              <span>
+                {findNicknameById(request.sessionId)} 申请 {request.amount}
+              </span>
+              {isHost ? (
+                <button disabled={!canApprove} onClick={() => onApprove(request.id)}>
+                  {canApprove ? "通过" : "牌局中"}
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function SettlementModal({ settlement, onClose }: { settlement: SettlementResult; onClose: () => void }) {
+  return (
+    <ModalShell title="结算结果" onClose={onClose}>
+      {settlement.players.map((player) => (
+        <div className="settlement-row" key={player.sessionId}>
+          <span>{player.nickname}</span>
+          <strong className={player.net >= 0 ? "win" : "lose"}>{player.net}</strong>
+        </div>
+      ))}
+      <p style={{ marginTop: 12 }}>合计：{settlement.totalNet}</p>
+    </ModalShell>
   );
 }
 
