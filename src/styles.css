@@ -880,3 +880,124 @@ button:disabled {
     font-size: 16px;
   }
 }
+
+/* === Modal & Drawer (shared) === */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.modal-card {
+  position: relative;
+  width: min(420px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  border: 1px solid rgba(247, 242, 223, 0.18);
+  border-radius: 18px;
+  padding: 18px;
+  background: rgba(7, 19, 13, 0.96);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+  color: #f7f2df;
+}
+
+.modal-card h3 {
+  margin-bottom: 12px;
+  font-size: 16px;
+}
+
+.modal-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f7f2df;
+  font-size: 16px;
+  line-height: 28px;
+}
+
+.modal-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.modal-row span:first-child {
+  color: rgba(247, 242, 223, 0.6);
+}
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.drawer-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 31;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  width: min(360px, 90vw);
+  height: 100dvh;
+  padding: 16px;
+  background: rgba(7, 19, 13, 0.98);
+  border-left: 1px solid rgba(247, 242, 223, 0.18);
+  box-shadow: -24px 0 60px rgba(0, 0, 0, 0.5);
+  color: #f7f2df;
+}
+
+.drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.drawer-body {
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.online-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #5df19a;
+  box-shadow: 0 0 0 2px rgba(93, 241, 154, 0.18);
+}
+
+.online-dot.offline {
+  background: rgba(247, 242, 223, 0.42);
+  box-shadow: none;
+}
+
+.has-unread {
+  position: relative;
+}
+
+.has-unread::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ff6b6b;
+}
