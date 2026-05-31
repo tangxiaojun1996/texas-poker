@@ -50,6 +50,11 @@ export function App() {
   const [handToast, setHandToast] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<string[]>([]);
   const [hostSettingsOpen, setHostSettingsOpen] = useState(false);
+  const [activePlayerId, setActivePlayerId] = useState<string | null>(null);
+  const [myProfileOpen, setMyProfileOpen] = useState(false);
+  const [requestsDrawerOpen, setRequestsDrawerOpen] = useState(false);
+  const [settlementModalOpen, setSettlementModalOpen] = useState(false);
+  const [raisePanelOpen, setRaisePanelOpen] = useState(false);
   const lastHandToastKeyRef = useRef<string | null>(null);
   const nicknameAutoSyncedRef = useRef(false);
 
@@ -251,6 +256,7 @@ export function App() {
   async function showSettlement() {
     if (!room) return;
     setSettlement(unwrap(await emitWithAck("room:settlement", { code: room.code })));
+    setSettlementModalOpen(true);
   }
 
   function showError(error: unknown) {
