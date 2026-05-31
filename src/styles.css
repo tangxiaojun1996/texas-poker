@@ -501,57 +501,6 @@ button:disabled {
     display: none;
   }
 
-  .room-mode .my-turn-banner {
-    position: fixed;
-    top: 8px;
-    left: 50%;
-    width: auto;
-    min-width: 210px;
-    margin: 0;
-    padding: 8px 12px;
-    transform: translateX(-50%);
-    font-size: 14px;
-  }
-
-  .room-mode .table-layout {
-    grid-template-columns: minmax(0, 1fr) 220px;
-    gap: 8px;
-    min-height: 0;
-  }
-
-  .room-mode .table-panel,
-  .room-mode .side-panel {
-    min-height: 0;
-    border-radius: 16px;
-    padding: 8px;
-  }
-
-  .room-mode .table-panel {
-    position: relative;
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
-  }
-
-  .room-mode .room-header {
-    gap: 8px;
-    padding-right: 0;
-  }
-
-  .room-mode .room-header h2 {
-    margin-bottom: 2px;
-    font-size: 16px;
-  }
-
-  .room-mode .room-header p,
-  .room-mode .side-panel p {
-    margin-bottom: 4px;
-    font-size: 12px;
-  }
-
-  .room-mode .room-header-actions {
-    gap: 6px;
-  }
-
   .room-mode button {
     min-height: 34px;
     padding: 7px 9px;
@@ -569,21 +518,6 @@ button:disabled {
     right: 8px;
     width: 260px;
     padding: 10px;
-  }
-
-  .room-mode .poker-table {
-    min-height: 0;
-    height: 100%;
-    margin: 6px 0;
-    border-width: 8px;
-    border-radius: 34px;
-  }
-
-  .room-mode .community {
-    max-width: 42%;
-    padding: 8px;
-    gap: 4px;
-    font-size: 12px;
   }
 
   .room-mode .timer {
@@ -608,35 +542,10 @@ button:disabled {
     height: 14px;
   }
 
-  .room-mode .seats {
-    inset: 6px;
-  }
-
-  .room-mode .seat {
-    width: 108px;
-    gap: 5px;
-    border-radius: 11px;
-    padding: 6px;
-  }
-
   .room-mode .player-icon {
     width: 24px;
     height: 24px;
     font-size: 12px;
-  }
-
-  .room-mode .seat strong {
-    display: block;
-    max-width: 66px;
-    overflow: hidden;
-    font-size: 11px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .room-mode .seat span {
-    font-size: 10px;
-    line-height: 1.18;
   }
 
   .room-mode .seat-timer {
@@ -645,88 +554,8 @@ button:disabled {
     font-size: 10px !important;
   }
 
-  .room-mode .seat-2 {
-    top: 10%;
-    right: 0;
-  }
-
-  .room-mode .seat-3 {
-    top: 38%;
-  }
-
-  .room-mode .seat-4 {
-    right: 0;
-    bottom: 10%;
-  }
-
-  .room-mode .seat-6 {
-    bottom: 10%;
-    left: 0;
-  }
-
-  .room-mode .seat-7 {
-    top: 38%;
-  }
-
-  .room-mode .seat-8 {
-    top: 10%;
-    left: 0;
-  }
-
-  .room-mode .my-hand,
-  .room-mode .action-panel {
-    margin-top: 6px;
-    border-radius: 12px;
-    padding: 8px;
-  }
-
-  .room-mode .my-hand h3,
-  .room-mode .action-panel h3,
-  .room-mode .side-panel h2,
-  .room-mode .side-panel h3 {
-    margin-bottom: 6px;
-    font-size: 14px;
-  }
-
-  .room-mode .button-row,
-  .room-mode .bet-box,
   .room-mode .inline-form {
     gap: 6px;
-  }
-
-  .room-mode .bet-box {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .room-mode .bet-box input {
-    grid-column: span 3;
-  }
-
-  .room-mode .side-panel {
-    overflow: hidden;
-    gap: 8px;
-  }
-
-  .room-mode .room-nickname-editor,
-  .room-mode .message-list,
-  .room-mode .settlement {
-    border-radius: 12px;
-    padding: 8px;
-  }
-
-  .room-mode .message-list {
-    overflow: auto;
-    min-height: 0;
-  }
-
-  .room-mode .request-row,
-  .room-mode .notice-row,
-  .room-mode .settlement-row {
-    gap: 6px;
-    border-radius: 10px;
-    padding: 7px;
-    font-size: 11px;
   }
 
   .room-mode .toast {
