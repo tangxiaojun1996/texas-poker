@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatCard, type Card } from "../shared/cards";
 import { emitWithAck, socket } from "./client/socket";
 import type {
@@ -22,6 +22,8 @@ type ActionInput = {
   type: string;
   amount?: number;
 };
+
+type GamePlayer = NonNullable<PublicRoomState["game"]>["players"][number];
 
 const initialCreateForm: CreateRoomForm = {
   smallBlind: 5,
@@ -48,6 +50,11 @@ export function App() {
   const [handToast, setHandToast] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<string[]>([]);
   const [hostSettingsOpen, setHostSettingsOpen] = useState(false);
+  const [activePlayerId, setActivePlayerId] = useState<string | null>(null);
+  const [myProfileOpen, setMyProfileOpen] = useState(false);
+  const [requestsDrawerOpen, setRequestsDrawerOpen] = useState(false);
+  const [settlementModalOpen, setSettlementModalOpen] = useState(false);
+  const [raisePanelOpen, setRaisePanelOpen] = useState(false);
   const lastHandToastKeyRef = useRef<string | null>(null);
   const nicknameAutoSyncedRef = useRef(false);
 
@@ -249,6 +256,7 @@ export function App() {
   async function showSettlement() {
     if (!room) return;
     setSettlement(unwrap(await emitWithAck("room:settlement", { code: room.code })));
+    setSettlementModalOpen(true);
   }
 
   function showError(error: unknown) {
@@ -267,13 +275,6 @@ export function App() {
           </div>
         </div>
       </header>
-
-      {isMyTurn ? (
-        <div className="my-turn-banner">
-          <strong>轮到你决策</strong>
-          {actionSecondsLeft !== null ? <span>{actionSecondsLeft}s</span> : null}
-        </div>
-      ) : null}
 
       {!room ? (
         <section className="grid-layout">
@@ -354,7 +355,7 @@ export function App() {
         <section className="table-layout">
           <article className="table-panel">
             <div className="room-header">
-              <div>
+              <div className="room-header-info">
                 <h2>房间 #{room.code}</h2>
                 <p>
                   盲注 {room.config.smallBlind}/{room.config.bigBlind} ·{" "}
@@ -362,11 +363,28 @@ export function App() {
                 </p>
               </div>
               <div className="room-header-actions">
+                {isMyTurn ? (
+                  <span className="my-turn-pill">
+                    <strong>轮到你</strong>
+                    {actionSecondsLeft !== null ? <span>{actionSecondsLeft}s</span> : null}
+                  </span>
+                ) : null}
                 {isHost ? (
                   <button className="ghost-button" onClick={() => setHostSettingsOpen((open) => !open)}>
                     房主设置
                   </button>
                 ) : null}
+                <button
+                  className={`ghost-button ${pendingTopUpRequests.length > 0 ? "has-unread" : ""}`}
+                  onClick={() => setRequestsDrawerOpen(true)}
+                  aria-label="补码申请"
+                >
+                  消息
+                </button>
+                <button className="ghost-button me-button" onClick={() => setMyProfileOpen(true)}>
+                  <span className="player-icon-mini">{(session?.nickname ?? "我").trim().slice(0, 1).toUpperCase()}</span>
+                  <span className={`online-dot ${session ? "" : "offline"}`} />
+                </button>
                 <button onClick={() => leaveRoom().catch(showError)}>退出</button>
               </div>
             </div>
@@ -390,7 +408,7 @@ export function App() {
             <div className="poker-table">
               <div className="community">
                 <p>{room.game?.street ?? "waiting"}</p>
-                {room.game?.actorId ? (
+                {room.game?.actorId && room.game.actorId !== session?.id ? (
                   <p className="timer">
                     {room.players.find((player) => player.sessionId === room.game?.actorId)?.nickname ?? "玩家"} 决策中
                     {actionSecondsLeft !== null ? ` · ${actionSecondsLeft}s` : ""}
@@ -403,91 +421,77 @@ export function App() {
                 </div>
                 <strong>底池 {pot}</strong>
               </div>
+
               <div className="seats">
-                {tablePlayers.map((player, index) => {
-                  const gamePlayer = room.game?.players.find((item) => item.id === player.sessionId);
-                  return (
-                    <div
-                      className={`seat seat-${index + 1} ${room.game?.actorId === player.sessionId ? "acting" : ""}`}
-                      key={player.sessionId}
-                    >
-                      <PlayerIcon name={player.nickname} />
-                      <div>
-                        <strong>
-                          {player.nickname}
-                          {room.hostSessionId === player.sessionId ? " · 房主" : ""}
-                        </strong>
+                {tablePlayers
+                  .filter((player) => player.sessionId !== session?.id)
+                  .map((player, index) => {
+                    const gamePlayer = room.game?.players.find((item) => item.id === player.sessionId);
+                    return (
+                      <button
+                        type="button"
+                        className={`seat seat-${index + 1} ${room.game?.actorId === player.sessionId ? "acting" : ""}`}
+                        key={player.sessionId}
+                        onClick={() => setActivePlayerId(player.sessionId)}
+                      >
+                        <div className="seat-row">
+                          <span className="seat-name">{player.nickname}</span>
+                          <span className={`online-dot ${player.online ? "" : "offline"}`} />
+                        </div>
+                        <span className="seat-chips">筹码 {player.chips}</span>
                         {room.game?.actorId === player.sessionId && actionSecondsLeft !== null ? (
                           <span className="seat-timer">{actionSecondsLeft}s</span>
                         ) : null}
-                        <span>{player.online ? "在线" : "离线"}</span>
-                        <span>筹码 {player.chips}</span>
-                        <span>已补 {Math.max(0, player.totalInvested - 1000)}</span>
-                        <span>{gamePlayer?.status ?? "等待"}</span>
-                      </div>
+                        {gamePlayer?.status === "folded" ? <span className="seat-status">已弃牌</span> : null}
+                      </button>
+                    );
+                  })}
+              </div>
+
+              {(privateState?.holeCards.length ?? 0) > 0 ? (
+                <div className="my-hand-floating">
+                  <div className="cards">
+                    {privateState!.holeCards.map((card, index) => (
+                      <CardView card={card} key={`${formatCard(card)}-${index}`} />
+                    ))}
+                  </div>
+                  {privateState && room.game && room.game.actorId === session?.id && room.game.street !== "straddleDecision" ? (
+                    <ActionButtons
+                      legalActions={privateState.legalActions}
+                      raisePanelOpen={raisePanelOpen}
+                      onToggleRaise={() => setRaisePanelOpen((open) => !open)}
+                      onAct={(action) => act(action).catch(showError)}
+                    />
+                  ) : null}
+                  {room.game?.street === "straddleDecision" && room.game.actorId === session?.id ? (
+                    <div className="action-stack">
+                      <button className="primary" onClick={() => chooseStraddle(true).catch(showError)}>
+                        Straddle {room.config.bigBlind * 2}
+                      </button>
+                      <button onClick={() => chooseStraddle(false).catch(showError)}>不 Straddle</button>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="my-hand">
-              <h3>我的手牌</h3>
-              <div className="cards">
-                {(privateState?.holeCards ?? []).map((card, index) => (
-                  <CardView card={card} key={`${formatCard(card)}-${index}`} />
-                ))}
-                {(privateState?.holeCards.length ?? 0) === 0 ? <span className="muted">等待发牌</span> : null}
-              </div>
-            </div>
-
-            {room.game?.street === "straddleDecision" && room.game.actorId === session?.id ? (
-              <div className="action-panel">
-                <h3>是否 Straddle？</h3>
-                <button onClick={() => chooseStraddle(true).catch(showError)}>Straddle {room.config.bigBlind * 2}</button>
-                <button onClick={() => chooseStraddle(false).catch(showError)}>不 Straddle</button>
-              </div>
-            ) : null}
-
-            {privateState && room.game && room.game.actorId === session?.id && room.game.street !== "straddleDecision" ? (
-              <div className="action-panel">
-                <h3>轮到你行动</h3>
-                <div className="button-row">
-                  {privateState.legalActions.canFold ? <button onClick={() => act({ type: "fold" }).catch(showError)}>弃牌</button> : null}
-                  {privateState.legalActions.canCheck ? <button onClick={() => act({ type: "check" }).catch(showError)}>过牌</button> : null}
-                  {privateState.legalActions.canCall ? (
-                    <button onClick={() => act({ type: "call" }).catch(showError)}>跟注 {privateState.legalActions.callAmount}</button>
                   ) : null}
-                  {privateState.legalActions.canAllIn ? <button onClick={() => act({ type: "all-in" }).catch(showError)}>All-in</button> : null}
-                </div>
-                <div className="bet-box">
-                  <input
-                    type="number"
-                    value={betAmount}
-                    onChange={(event) => setBetAmount(event.target.value)}
-                    placeholder={`${privateState.legalActions.minAmount} - ${privateState.legalActions.maxAmount}`}
-                  />
-                  {[1 / 3, 1 / 2, 2 / 3, 1].map((ratio) => (
-                    <button
-                      key={ratio}
-                      onClick={() => setBetAmount(String(clampWager(Math.floor(pot * ratio), privateState.legalActions)))}
-                    >
-                      底池 {ratio === 1 ? "1" : ratio === 1 / 3 ? "1/3" : ratio === 1 / 2 ? "1/2" : "2/3"}
-                    </button>
-                  ))}
-                  {privateState.legalActions.canBet ? (
-                    <button disabled={!isSubmittedBetValid} onClick={() => act({ type: "bet", amount: submittedBetAmount }).catch(showError)}>
-                      下注
-                    </button>
-                  ) : null}
-                  {privateState.legalActions.canRaise ? (
-                    <button disabled={!isSubmittedBetValid} onClick={() => act({ type: "raise", amount: submittedBetAmount }).catch(showError)}>
-                      加注到
-                    </button>
+                  {raisePanelOpen && privateState && room.game && room.game.actorId === session?.id ? (
+                    <RaiseSubPanel
+                      bigBlind={room.config.bigBlind}
+                      legalActions={privateState.legalActions}
+                      betAmount={betAmount}
+                      setBetAmount={setBetAmount}
+                      onSubmit={(action) => {
+                        act(action).catch(showError);
+                        setRaisePanelOpen(false);
+                      }}
+                    />
                   ) : null}
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
+
+            <div className="self-anchor">
+              <span className="seat-name">{session?.nickname ?? "我"}</span>
+              <span className="seat-chips">筹码 {currentPlayer?.chips ?? 0}</span>
+              <span className={`online-dot ${session ? "" : "offline"}`} />
+            </div>
           </article>
 
           <aside className="side-panel">
@@ -543,7 +547,311 @@ export function App() {
         </section>
       )}
       {handToast ? <div className="toast">{handToast}</div> : null}
+
+      {activePlayerId
+        ? (() => {
+            const target = room?.players.find((p) => p.sessionId === activePlayerId);
+            if (!target) return null;
+            const gamePlayer = room?.game?.players.find((p) => p.id === activePlayerId);
+            return (
+              <PlayerDetailModal
+                player={target}
+                gamePlayer={gamePlayer}
+                isHost={room?.hostSessionId === target.sessionId}
+                onClose={() => setActivePlayerId(null)}
+              />
+            );
+          })()
+        : null}
+
+      {myProfileOpen && room ? (
+        <MyProfileModal
+          nickname={nickname}
+          onNicknameChange={setNickname}
+          onNicknameSave={() => saveNickname().catch(showError)}
+          chips={currentPlayer?.chips ?? 0}
+          topUp={Math.max(0, (currentPlayer?.totalInvested ?? 1000) - 1000)}
+          topUpAmount={topUpAmount}
+          onTopUpAmountChange={setTopUpAmount}
+          onRequestTopUp={() => requestTopUp().catch(showError)}
+          canRequestTopUp={canRequestTopUp}
+          onClose={() => setMyProfileOpen(false)}
+        />
+      ) : null}
+
+      {requestsDrawerOpen && room ? (
+        <TopUpRequestsDrawer
+          requests={room.topUpRequests}
+          isHost={isHost}
+          canApprove={canRequestTopUp}
+          findNicknameById={(sessionId) => room.players.find((p) => p.sessionId === sessionId)?.nickname ?? sessionId}
+          onApprove={(requestId) => approveTopUp(requestId).catch(showError)}
+          onClose={() => setRequestsDrawerOpen(false)}
+        />
+      ) : null}
+
+      {settlementModalOpen && settlement ? (
+        <SettlementModal settlement={settlement} onClose={() => setSettlementModalOpen(false)} />
+      ) : null}
     </main>
+  );
+}
+
+function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+        <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
+        <h3>{title}</h3>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function PlayerDetailModal({
+  player,
+  gamePlayer,
+  isHost,
+  onClose,
+}: {
+  player: PublicRoomState["players"][number];
+  gamePlayer?: GamePlayer;
+  isHost: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <ModalShell title={`${player.nickname}${isHost ? " · 房主" : ""}`} onClose={onClose}>
+      <div className="modal-row">
+        <span>状态</span>
+        <span>
+          <span className={`online-dot ${player.online ? "" : "offline"}`} /> {player.online ? "在线" : "离线"}
+        </span>
+      </div>
+      <div className="modal-row">
+        <span>当前筹码</span>
+        <span>{player.chips}</span>
+      </div>
+      <div className="modal-row">
+        <span>累计补码</span>
+        <span>{Math.max(0, player.totalInvested - 1000)}</span>
+      </div>
+      <div className="modal-row">
+        <span>本局状态</span>
+        <span>{gamePlayer?.status ?? "等待"}</span>
+      </div>
+    </ModalShell>
+  );
+}
+
+function MyProfileModal({
+  nickname,
+  onNicknameChange,
+  onNicknameSave,
+  chips,
+  topUp,
+  topUpAmount,
+  onTopUpAmountChange,
+  onRequestTopUp,
+  canRequestTopUp,
+  onClose,
+}: {
+  nickname: string;
+  onNicknameChange: (value: string) => void;
+  onNicknameSave: () => void;
+  chips: number;
+  topUp: number;
+  topUpAmount: string;
+  onTopUpAmountChange: (value: string) => void;
+  onRequestTopUp: () => void;
+  canRequestTopUp: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <ModalShell title="我的信息" onClose={onClose}>
+      <label>
+        我的昵称
+        <input value={nickname} onChange={(event) => onNicknameChange(event.target.value)} />
+      </label>
+      <button onClick={onNicknameSave}>更新昵称</button>
+      <div style={{ height: 12 }} />
+      <div className="modal-row">
+        <span>我的筹码</span>
+        <span>{chips}</span>
+      </div>
+      <div className="modal-row">
+        <span>累计补码</span>
+        <span>{topUp}</span>
+      </div>
+      <label>
+        申请补码（金额）
+        <input type="number" value={topUpAmount} onChange={(event) => onTopUpAmountChange(event.target.value)} />
+      </label>
+      <button disabled={!canRequestTopUp} onClick={onRequestTopUp}>
+        {canRequestTopUp ? "申请补码" : "牌局中不可补码"}
+      </button>
+    </ModalShell>
+  );
+}
+
+function TopUpRequestsDrawer({
+  requests,
+  isHost,
+  canApprove,
+  findNicknameById,
+  onApprove,
+  onClose,
+}: {
+  requests: PublicRoomState["topUpRequests"];
+  isHost: boolean;
+  canApprove: boolean;
+  findNicknameById: (sessionId: string) => string;
+  onApprove: (requestId: string) => void;
+  onClose: () => void;
+}) {
+  const pending = requests.filter((request) => request.status === "pending");
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <aside className="drawer-panel" onClick={(event) => event.stopPropagation()}>
+        <div className="drawer-header">
+          <h3 style={{ margin: 0 }}>补码申请</h3>
+          <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
+        </div>
+        <div className="drawer-body">
+          {pending.length === 0 ? <p className="muted">暂无待处理申请</p> : null}
+          {pending.map((request) => (
+            <div className="request-row" key={request.id}>
+              <span>
+                {findNicknameById(request.sessionId)} 申请 {request.amount}
+              </span>
+              {isHost ? (
+                <button disabled={!canApprove} onClick={() => onApprove(request.id)}>
+                  {canApprove ? "通过" : "牌局中"}
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function SettlementModal({ settlement, onClose }: { settlement: SettlementResult; onClose: () => void }) {
+  return (
+    <ModalShell title="结算结果" onClose={onClose}>
+      {settlement.players.map((player) => (
+        <div className="settlement-row" key={player.sessionId}>
+          <span>{player.nickname}</span>
+          <strong className={player.net >= 0 ? "win" : "lose"}>{player.net}</strong>
+        </div>
+      ))}
+      <p style={{ marginTop: 12 }}>合计：{settlement.totalNet}</p>
+    </ModalShell>
+  );
+}
+
+function ActionButtons({
+  legalActions,
+  raisePanelOpen,
+  onToggleRaise,
+  onAct,
+}: {
+  legalActions: LegalActions;
+  raisePanelOpen: boolean;
+  onToggleRaise: () => void;
+  onAct: (action: ActionInput) => void;
+}) {
+  const showCallSlot = legalActions.canCall || legalActions.canCheck;
+  const showRaiseSlot = legalActions.canBet || legalActions.canRaise;
+
+  return (
+    <div className="action-stack">
+      {legalActions.canFold ? (
+        <button className="action-btn fold" onClick={() => onAct({ type: "fold" })}>
+          弃牌
+        </button>
+      ) : null}
+      {showCallSlot ? (
+        legalActions.canCall ? (
+          <button className="action-btn call" onClick={() => onAct({ type: "call" })}>
+            跟注 {legalActions.callAmount}
+          </button>
+        ) : (
+          <button className="action-btn check" onClick={() => onAct({ type: "check" })}>
+            过牌
+          </button>
+        )
+      ) : null}
+      {showRaiseSlot ? (
+        <button className={`action-btn raise ${raisePanelOpen ? "active" : ""}`} onClick={onToggleRaise}>
+          {legalActions.canRaise ? "加注" : "下注"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function RaiseSubPanel({
+  bigBlind,
+  legalActions,
+  betAmount,
+  setBetAmount,
+  onSubmit,
+}: {
+  bigBlind: number;
+  legalActions: LegalActions;
+  betAmount: string;
+  setBetAmount: (value: string) => void;
+  onSubmit: (action: ActionInput) => void;
+}) {
+  const min = legalActions.minAmount;
+  const max = legalActions.maxAmount;
+
+  useEffect(() => {
+    if (betAmount === "") {
+      setBetAmount(String(min));
+    }
+  }, [betAmount, min, setBetAmount]);
+
+  const numeric = Number(betAmount);
+  const valid = Number.isInteger(numeric) && numeric >= min && numeric <= max;
+
+  function adjust(delta: number) {
+    const current = Number.isFinite(numeric) ? numeric : min;
+    const next = Math.min(max, Math.max(min, current + delta));
+    setBetAmount(String(next));
+  }
+
+  function submit() {
+    if (!valid) return;
+    if (legalActions.canRaise) {
+      onSubmit({ type: "raise", amount: numeric });
+    } else if (legalActions.canBet) {
+      onSubmit({ type: "bet", amount: numeric });
+    }
+  }
+
+  return (
+    <div className="raise-subpanel">
+      <button className="step-btn" disabled={numeric - bigBlind < min} onClick={() => adjust(-bigBlind)} aria-label="减少">−</button>
+      <input
+        type="number"
+        className="raise-input"
+        value={betAmount}
+        min={min}
+        max={max}
+        onChange={(event) => setBetAmount(event.target.value)}
+      />
+      <button className="step-btn" disabled={numeric + bigBlind > max} onClick={() => adjust(bigBlind)} aria-label="增加">+</button>
+      {legalActions.canAllIn ? (
+        <button className="all-in-btn" onClick={() => setBetAmount(String(max))}>All-in</button>
+      ) : null}
+      <button className="confirm-btn" disabled={!valid} onClick={submit}>
+        {legalActions.canRaise ? `加注到 ${valid ? numeric : "?"}` : `下注 ${valid ? numeric : "?"}`}
+      </button>
+    </div>
   );
 }
 
