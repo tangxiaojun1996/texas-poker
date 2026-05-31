@@ -47,7 +47,6 @@ export function App() {
   const [settlement, setSettlement] = useState<SettlementResult | null>(null);
   const [message, setMessage] = useState("连接中...");
   const [now, setNow] = useState(Date.now());
-  const [handToast, setHandToast] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<string[]>([]);
   const [hostSettingsOpen, setHostSettingsOpen] = useState(false);
   const [activePlayerId, setActivePlayerId] = useState<string | null>(null);
@@ -55,7 +54,6 @@ export function App() {
   const [requestsDrawerOpen, setRequestsDrawerOpen] = useState(false);
   const [settlementModalOpen, setSettlementModalOpen] = useState(false);
   const [raisePanelOpen, setRaisePanelOpen] = useState(false);
-  const lastHandToastKeyRef = useRef<string | null>(null);
   const nicknameAutoSyncedRef = useRef(false);
 
   const isHost = Boolean(session && room?.hostSessionId === session.id);
@@ -141,33 +139,6 @@ export function App() {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    if (!room?.game?.handResult || room.game.street !== "handComplete") {
-      return;
-    }
-
-    const toastKey = `${room.code}:${room.game.handResult.reason}:${room.game.handResult.winners.join(",")}:${Object.entries(
-      room.game.handResult.payouts,
-    )
-      .map(([playerId, payout]) => `${playerId}:${payout}`)
-      .join("|")}`;
-
-    if (lastHandToastKeyRef.current === toastKey) {
-      return;
-    }
-
-    lastHandToastKeyRef.current = toastKey;
-    setHandToast(buildHandToast(room));
-  }, [room]);
-
-  useEffect(() => {
-    if (!handToast) {
-      return;
-    }
-    const timer = window.setTimeout(() => setHandToast(null), 8_000);
-    return () => window.clearTimeout(timer);
-  }, [handToast]);
 
   const tablePlayers = useMemo(() => room?.players ?? [], [room]);
 
@@ -420,6 +391,9 @@ export function App() {
                   ))}
                 </div>
                 <strong>底池 {pot}</strong>
+                {room.game?.handResult && room.game.street === "handComplete" ? (
+                  <div className="hand-summary">{buildHandToast(room)}</div>
+                ) : null}
               </div>
 
               <div className="seats">
@@ -546,7 +520,6 @@ export function App() {
           </aside>
         </section>
       )}
-      {handToast ? <div className="toast">{handToast}</div> : null}
 
       {activePlayerId
         ? (() => {

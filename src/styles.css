@@ -262,6 +262,17 @@ button:disabled {
   background: rgba(0, 0, 0, 0.18);
 }
 
+.hand-summary {
+  border: 1px solid rgba(241, 193, 93, 0.55);
+  border-radius: 12px;
+  padding: 8px 12px;
+  color: #f7f2df;
+  background: rgba(7, 19, 13, 0.7);
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.4;
+}
+
 .timer {
   margin-bottom: 0;
   color: #f1c15d;
@@ -623,7 +634,7 @@ button:disabled {
     height: 100%;
     min-height: 0;
     margin: 4px 0 2px;
-    border-radius: 50% / 50%;
+    border-radius: 9999px;
     border-width: 6px;
   }
 
@@ -695,6 +706,12 @@ button:disabled {
     max-width: 38%;
     padding: 6px;
     font-size: 11px;
+  }
+
+  .room-mode .hand-summary {
+    padding: 5px 8px;
+    font-size: 11px;
+    line-height: 1.3;
   }
 }
 
