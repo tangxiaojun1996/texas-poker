@@ -422,13 +422,16 @@ export function App() {
                   })}
               </div>
 
-              {(privateState?.holeCards.length ?? 0) > 0 ? (
+              {(privateState?.holeCards.length ?? 0) > 0 ||
+              (room.game?.street === "straddleDecision" && room.game.actorId === session?.id) ? (
                 <div className="my-hand-floating">
-                  <div className="cards">
-                    {privateState!.holeCards.map((card, index) => (
-                      <CardView card={card} key={`${formatCard(card)}-${index}`} />
-                    ))}
-                  </div>
+                  {(privateState?.holeCards.length ?? 0) > 0 ? (
+                    <div className="cards">
+                      {privateState!.holeCards.map((card, index) => (
+                        <CardView card={card} key={`${formatCard(card)}-${index}`} />
+                      ))}
+                    </div>
+                  ) : null}
                   {privateState && room.game && room.game.actorId === session?.id && room.game.street !== "straddleDecision" ? (
                     <ActionButtons
                       legalActions={privateState.legalActions}
