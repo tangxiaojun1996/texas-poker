@@ -1105,3 +1105,35 @@ button:disabled {
   font-size: 10px;
   color: rgba(247, 242, 223, 0.7);
 }
+
+.seat-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.role-badge {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+}
+
+.role-badge.role-button {
+  color: #09150e;
+  background: #f7f2df;
+}
+
+.role-badge.role-sb {
+  color: #09150e;
+  background: #5dd0f1;
+}
+
+.role-badge.role-bb {
+  color: #09150e;
+  background: #f1c15d;
+}

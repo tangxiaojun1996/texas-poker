@@ -147,9 +147,15 @@ export function startNextHand(hostSessionId: string, roomCode: string, seed?: nu
     throw new Error("至少需要 2 名在线玩家才能开始");
   }
 
+  const underfunded = gamePlayers.filter((player) => player.chips + player.pendingTopUp < room.config.bigBlind);
+  if (underfunded.length > 0) {
+    const names = underfunded.map((player) => player.nickname).join("、");
+    throw new Error(`以下玩家筹码不足一个大盲，无法开始：${names}`);
+  }
+
   room.game = startHand(
     {
-      config: room.config,
+      config: { ...room.config, straddleEnabled: false },
       players: gamePlayers,
       buttonIndex: room.game?.buttonIndex ?? -1,
       deck: [],

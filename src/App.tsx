@@ -269,14 +269,6 @@ export function App() {
                 onChange={(event) => setCreateForm({ ...createForm, bigBlind: Number(event.target.value) })}
               />
             </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={createForm.straddleEnabled}
-                onChange={(event) => setCreateForm({ ...createForm, straddleEnabled: event.target.checked })}
-              />
-              支持 UTG Straddle
-            </label>
             <label>
               房间密码（可空）
               <input
@@ -298,8 +290,7 @@ export function App() {
                   <div>
                     <strong>#{item.code}</strong>
                     <p>
-                      {item.smallBlind}/{item.bigBlind} · {item.straddleEnabled ? "Straddle" : "无 Straddle"} ·{" "}
-                      {item.hasPassword ? "有密码" : "无密码"} · {item.status}
+                      {item.smallBlind}/{item.bigBlind} · {item.hasPassword ? "有密码" : "无密码"} · {item.status}
                     </p>
                     <small>
                       房主 {item.hostNickname} · {item.playerCount} 人
@@ -329,8 +320,7 @@ export function App() {
               <div className="room-header-info">
                 <h2>房间 #{room.code}</h2>
                 <p>
-                  盲注 {room.config.smallBlind}/{room.config.bigBlind} ·{" "}
-                  {room.config.straddleEnabled ? "支持 Straddle" : "不支持 Straddle"} · 玩家 {room.players.length}/9
+                  盲注 {room.config.smallBlind}/{room.config.bigBlind} · 玩家 {room.players.length}/9
                 </p>
               </div>
               <div className="room-header-actions">
@@ -401,6 +391,7 @@ export function App() {
                   .filter((player) => player.sessionId !== session?.id)
                   .map((player, index) => {
                     const gamePlayer = room.game?.players.find((item) => item.id === player.sessionId);
+                    const badges = roleBadges(room, player.sessionId);
                     return (
                       <button
                         type="button"
@@ -413,6 +404,15 @@ export function App() {
                           <span className={`online-dot ${player.online ? "" : "offline"}`} />
                         </div>
                         <span className="seat-chips">筹码 {player.chips}</span>
+                        {badges.length > 0 ? (
+                          <div className="seat-badges">
+                            {badges.map((badge) => (
+                              <span className={`role-badge role-${badge.kind}`} key={badge.kind}>
+                                {badge.label}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                         {room.game?.actorId === player.sessionId && actionSecondsLeft !== null ? (
                           <span className="seat-timer">{actionSecondsLeft}s</span>
                         ) : null}
@@ -467,6 +467,13 @@ export function App() {
             <div className="self-anchor">
               <span className="seat-name">{session?.nickname ?? "我"}</span>
               <span className="seat-chips">筹码 {currentPlayer?.chips ?? 0}</span>
+              {session?.id
+                ? roleBadges(room, session.id).map((badge) => (
+                    <span className={`role-badge role-${badge.kind}`} key={badge.kind}>
+                      {badge.label}
+                    </span>
+                  ))
+                : null}
               <span className={`online-dot ${session ? "" : "offline"}`} />
             </div>
           </article>
@@ -904,6 +911,26 @@ function buildHandToast(room: PublicRoomState) {
 
 function findNickname(room: PublicRoomState, sessionId: string) {
   return room.players.find((player) => player.sessionId === sessionId)?.nickname ?? sessionId;
+}
+
+function roleBadges(room: PublicRoomState, sessionId: string): Array<{ kind: "button" | "sb" | "bb"; label: string }> {
+  const game = room.game;
+  if (!game || game.street === "waiting" || game.street === "handComplete") {
+    return [];
+  }
+  const badges: Array<{ kind: "button" | "sb" | "bb"; label: string }> = [];
+  const buttonPlayer = game.players[game.buttonIndex];
+  if (buttonPlayer?.id === sessionId) {
+    badges.push({ kind: "button", label: "庄" });
+  }
+  const headsUp = game.players.length === 2;
+  if (!headsUp && game.smallBlindPlayerId === sessionId) {
+    badges.push({ kind: "sb", label: "小盲" });
+  }
+  if (game.bigBlindPlayerId === sessionId) {
+    badges.push({ kind: "bb", label: "大盲" });
+  }
+  return badges;
 }
 
 function clampWager(amount: number, legalActions: LegalActions) {
